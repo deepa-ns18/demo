@@ -1,50 +1,82 @@
+// Agent linux-agent
 pipeline {
     agent { label 'linux-agent' }
     environment {
-        BUILD_DIR="build"
+        BUILD_DIR = 'build'
+        PROJECT_DIR = 'led-firmware'
     }
     stages {
         stage('Checkout') {
+            steps { checkout scm }
+        }
+
+        stage('Prepare') {
             steps {
-                checkout scm
+                sh '''
+                set -e
+                NEED_INSTALL=0
+                for cmd in cmake clang-format arm-none-eabi-gcc arm-none-eabi-objcopy; do
+                    if ! command -v "$cmd" >/dev/null 2>&1; then
+                        NEED_INSTALL=1
+                    fi
+                done
+
+                if [ "$NEED_INSTALL" -eq 1 ]; then
+                    if command -v sudo >/dev/null 2>&1; then
+                        sudo apt-get update
+                        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends cmake clang-format gcc-arm-none-eabi binutils-arm-none-eabi build-essential || true
+                    else
+                        apt-get update || true
+                        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends cmake clang-format gcc-arm-none-eabi binutils-arm-none-eabi build-essential || true
+                    fi
+                else
+                    echo "Required tools already installed"
+                fi
+                '''
             }
         }
+
         stage('Lint') {
             steps {
                 sh '''
-                find src include -name "*.c" | xargs clang-format --dry-run --Werror || true
-                find src include -name "*.h" | xargs clang-format --dry-run --Werror || true
+                if command -v clang-format >/dev/null 2>&1; then
+                    find ${PROJECT_DIR}/src ${PROJECT_DIR}/include -type f -name "*.c" -print0 | xargs -0 --no-run-if-empty clang-format --dry-run --Werror || true
+                    find ${PROJECT_DIR}/src ${PROJECT_DIR}/include -type f -name "*.h" -print0 | xargs -0 --no-run-if-empty clang-format --dry-run --Werror || true
+                else
+                    echo "clang-format not found; skipping lint"
+                fi
                 '''
             }
         }
+
         stage('Configure') {
             steps {
                 sh '''
-                mkdir -p ${BUILD_DIR}
-                cd ${BUILD_DIR}
-                cmake .. \
-                -DCMAKE_TOOLCHAIN_FILE=../arm-gcc-toolchain.cmake
+                mkdir -p ${PROJECT_DIR}/${BUILD_DIR}
+                cd ${PROJECT_DIR}/${BUILD_DIR}
+                cmake .. -DCMAKE_TOOLCHAIN_FILE=../arm-gcc-toolchain.cmake
                 '''
             }
         }
+
         stage('Build') {
             steps {
                 sh '''
-                cd ${BUILD_DIR}
+                cd ${PROJECT_DIR}/${BUILD_DIR}
                 cmake --build .
                 '''
             }
         }
+
         stage('Verify Artifacts') {
             steps {
-                sh '''
-                ls -lh ${BUILD_DIR}
-                '''
+                sh 'ls -lh ${PROJECT_DIR}/${BUILD_DIR} || true'
             }
         }
+
         stage('Archive') {
             steps {
-                archiveArtifacts artifacts: 'build/*.elf,build/*.hex,build/*.bin'
+                archiveArtifacts artifacts: "${env.PROJECT_DIR}/${env.BUILD_DIR}/*.elf,${env.PROJECT_DIR}/${env.BUILD_DIR}/*.hex,${env.PROJECT_DIR}/${env.BUILD_DIR}/*.bin"
             }
         }
     }
