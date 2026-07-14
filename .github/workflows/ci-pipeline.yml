@@ -8,12 +8,11 @@ jobs:
   build:
     runs-on: self-hosted
     steps:
-      -uses: actions/checkout@v2
-      -name: verify runner
-        run:
+      - uses: actions/checkout@v2
+      - name: verify runner
+        run: |
           hostname
           whoami
           pwd
-      -name: run build
-        run:
-          echo "Running build for sample..."
+      - name: run build
+        run: echo "Running build for sample..."
